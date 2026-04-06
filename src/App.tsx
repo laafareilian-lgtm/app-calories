@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from 'react'
 import { ANTHROPIC_API_KEY } from './config'
+import { formatApiError } from './lib/formatApiError'
 import { estimateFromFoodText, estimateFromPhoto } from './lib/nutritionApi'
 import type { NutritionEstimate } from './types/nutrition'
 import './App.css'
@@ -197,7 +198,7 @@ export default function App() {
       const data = await estimateFromPhoto(key, base64, mediaType)
       setResult(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Une erreur est survenue.')
+      setError(formatApiError(e))
     } finally {
       setBusy(false)
     }
@@ -217,7 +218,7 @@ export default function App() {
       )
       setResult(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Une erreur est survenue.')
+      setError(formatApiError(e))
     } finally {
       setBusy(false)
     }
