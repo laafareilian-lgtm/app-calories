@@ -7,6 +7,16 @@ import {
   type CSSProperties,
 } from 'react'
 import { ANTHROPIC_API_KEY } from './config'
+import {
+  addJournalEntry,
+  DAILY_CALORIE_GOAL,
+  getDayTotal,
+  getTodayDateKey,
+  loadJournal,
+  removeJournalEntry,
+  saveJournal,
+  type JournalStore,
+} from './lib/dailyJournal'
 import { formatApiError } from './lib/formatApiError'
 import { estimateFromFoodText, estimateFromPhoto } from './lib/nutritionApi'
 import type { NutritionEstimate } from './types/nutrition'
@@ -82,7 +92,13 @@ function MacroRing({
   )
 }
 
-function ResultCard({ data }: { data: NutritionEstimate }) {
+function ResultCard({
+  data,
+  onAddToJournal,
+}: {
+  data: NutritionEstimate
+  onAddToJournal?: () => void
+}) {
   return (
     <article className="result-card" aria-live="polite">
       <div className="result-card__kcal">
@@ -133,6 +149,17 @@ function ResultCard({ data }: { data: NutritionEstimate }) {
               : 'faible'}
         </p>
       )}
+      {onAddToJournal && (
+        <div className="result-card__add">
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={onAddToJournal}
+          >
+            Ajouter au journal du jour (+{data.calories} kcal)
+          </button>
+        </div>
+      )}
     </article>
   )
 }
@@ -152,6 +179,19 @@ export default function App() {
   const [foodName, setFoodName] = useState('')
   const [quantity, setQuantity] = useState('')
   const [dragActive, setDragActive] = useState(false)
+
+  const [journal, setJournal] = useState<JournalStore>(() => loadJournal())
+
+  const todayKey = getTodayDateKey()
+  const todayTotal = useMemo(
+    () => getDayTotal(journal, todayKey),
+    [journal, todayKey],
+  )
+  const progressPct = Math.min(
+    100,
+    (todayTotal / DAILY_CALORIE_GOAL) * 100,
+  )
+  const overGoal = todayTotal > DAILY_CALORIE_GOAL
 
   const canAnalyzePhoto = useMemo(
     () => Boolean(ANTHROPIC_API_KEY.trim() && imageFile && !busy),
@@ -224,6 +264,30 @@ export default function App() {
     }
   }, [foodName, quantity])
 
+  const addCurrentResultToJournal = useCallback(() => {
+    if (!result) return
+    let label =
+      result.summary.trim().slice(0, 120) || 'Repas estimé'
+    if (mode === 'food' && foodName.trim()) {
+      label = `${foodName.trim()} — ${quantity.trim()}`
+    } else if (mode === 'photo') {
+      label = `Photo · ${result.summary.trim().slice(0, 100) || 'estimation'}`
+    }
+    setJournal((prev) => {
+      const next = addJournalEntry(prev, todayKey, result.calories, label)
+      saveJournal(next)
+      return next
+    })
+  }, [result, mode, foodName, quantity, todayKey])
+
+  const removeEntry = useCallback((id: string) => {
+    setJournal((prev) => {
+      const next = removeJournalEntry(prev, todayKey, id)
+      saveJournal(next)
+      return next
+    })
+  }, [todayKey])
+
   const tabPhotoId = `${baseId}-tab-photo`
   const tabFoodId = `${baseId}-tab-food`
   const panelPhotoId = `${baseId}-panel-photo`
@@ -242,6 +306,75 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      <section
+        className="daily-tracker"
+        aria-labelledby="daily-heading"
+      >
+        <div className="daily-tracker__head">
+          <h2 id="daily-heading" className="daily-tracker__title">
+            Objectif du jour
+          </h2>
+          <p className="daily-tracker__subtitle">
+            {new Date().toLocaleDateString('fr-FR', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
+          </p>
+        </div>
+        <div className="daily-tracker__nums">
+          <span className="daily-tracker__current">{todayTotal}</span>
+          <span className="daily-tracker__sep">/</span>
+          <span className="daily-tracker__goal">{DAILY_CALORIE_GOAL}</span>
+          <span className="daily-tracker__unit">kcal</span>
+        </div>
+        <div
+          className="daily-progress"
+          role="progressbar"
+          aria-valuenow={Math.round(progressPct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Progression vers l'objectif calorique"
+        >
+          <div
+            className={`daily-progress__fill ${overGoal ? 'daily-progress__fill--over' : ''}`}
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+        {overGoal && (
+          <p className="daily-tracker__over">
+            Objectif dépassé de {todayTotal - DAILY_CALORIE_GOAL} kcal
+          </p>
+        )}
+        {!overGoal && todayTotal > 0 && (
+          <p className="daily-tracker__remain">
+            Il reste environ {Math.max(0, DAILY_CALORIE_GOAL - todayTotal)}{' '}
+            kcal
+          </p>
+        )}
+        {todayTotal > 0 && (
+          <ul className="daily-tracker__list">
+            {(journal.days[todayKey] ?? []).map((e) => (
+              <li key={e.id} className="daily-tracker__item">
+                <span className="daily-tracker__item-label">{e.label}</span>
+                <span className="daily-tracker__item-kcal">{e.calories}</span>
+                <button
+                  type="button"
+                  className="daily-tracker__remove"
+                  aria-label={`Retirer ${e.label}`}
+                  onClick={() => removeEntry(e.id)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="daily-tracker__hint">
+          Données enregistrées sur cet appareil (navigateur).
+        </p>
+      </section>
 
       <div className="tabs">
         <div
@@ -422,7 +555,12 @@ export default function App() {
         </div>
       )}
 
-      {result && <ResultCard data={result} />}
+      {result && (
+        <ResultCard
+          data={result}
+          onAddToJournal={addCurrentResultToJournal}
+        />
+      )}
 
       <footer className="app__footer">
         <p>Estimations indicatives — pas un avis médical ou diététique.</p>
