@@ -9,12 +9,15 @@ import {
 import { ANTHROPIC_API_KEY } from './config'
 import {
   addJournalEntry,
+  compareDateKeys,
   DAILY_CALORIE_GOAL,
   getDayTotal,
   getTodayDateKey,
   loadJournal,
+  parseDateKey,
   removeJournalEntry,
   saveJournal,
+  shiftDateKey,
   type JournalStore,
 } from './lib/dailyJournal'
 import { formatApiError } from './lib/formatApiError'
@@ -181,17 +184,22 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false)
 
   const [journal, setJournal] = useState<JournalStore>(() => loadJournal())
+  const [selectedDateKey, setSelectedDateKey] = useState(() =>
+    getTodayDateKey(),
+  )
 
-  const todayKey = getTodayDateKey()
-  const todayTotal = useMemo(
-    () => getDayTotal(journal, todayKey),
-    [journal, todayKey],
+  const actualToday = getTodayDateKey()
+  const isViewingToday = selectedDateKey === actualToday
+
+  const dayTotal = useMemo(
+    () => getDayTotal(journal, selectedDateKey),
+    [journal, selectedDateKey],
   )
   const progressPct = Math.min(
     100,
-    (todayTotal / DAILY_CALORIE_GOAL) * 100,
+    (dayTotal / DAILY_CALORIE_GOAL) * 100,
   )
-  const overGoal = todayTotal > DAILY_CALORIE_GOAL
+  const overGoal = dayTotal > DAILY_CALORIE_GOAL
 
   const canAnalyzePhoto = useMemo(
     () => Boolean(ANTHROPIC_API_KEY.trim() && imageFile && !busy),
@@ -274,19 +282,19 @@ export default function App() {
       label = `Photo · ${result.summary.trim().slice(0, 100) || 'estimation'}`
     }
     setJournal((prev) => {
-      const next = addJournalEntry(prev, todayKey, result.calories, label)
+      const next = addJournalEntry(prev, selectedDateKey, result.calories, label)
       saveJournal(next)
       return next
     })
-  }, [result, mode, foodName, quantity, todayKey])
+  }, [result, mode, foodName, quantity, selectedDateKey])
 
   const removeEntry = useCallback((id: string) => {
     setJournal((prev) => {
-      const next = removeJournalEntry(prev, todayKey, id)
+      const next = removeJournalEntry(prev, selectedDateKey, id)
       saveJournal(next)
       return next
     })
-  }, [todayKey])
+  }, [selectedDateKey])
 
   const tabPhotoId = `${baseId}-tab-photo`
   const tabFoodId = `${baseId}-tab-food`
@@ -311,20 +319,56 @@ export default function App() {
         className="daily-tracker"
         aria-labelledby="daily-heading"
       >
+        <div className="daily-tracker__nav">
+          <button
+            type="button"
+            className="daily-nav-btn"
+            onClick={() =>
+              setSelectedDateKey((k) => shiftDateKey(k, -1))
+            }
+            aria-label="Jour précédent"
+          >
+            ‹ Précédent
+          </button>
+          <button
+            type="button"
+            className="daily-nav-btn"
+            disabled={compareDateKeys(selectedDateKey, actualToday) >= 0}
+            onClick={() =>
+              setSelectedDateKey((k) => shiftDateKey(k, 1))
+            }
+            aria-label="Jour suivant"
+          >
+            Suivant ›
+          </button>
+        </div>
         <div className="daily-tracker__head">
           <h2 id="daily-heading" className="daily-tracker__title">
-            Objectif du jour
+            {isViewingToday ? 'Objectif du jour' : 'Récapitulatif'}
           </h2>
           <p className="daily-tracker__subtitle">
-            {new Date().toLocaleDateString('fr-FR', {
+            {parseDateKey(selectedDateKey).toLocaleDateString('fr-FR', {
               weekday: 'long',
               day: 'numeric',
               month: 'long',
+              year: 'numeric',
             })}
+            {isViewingToday ? (
+              <span className="daily-tracker__badge">Aujourd’hui</span>
+            ) : null}
           </p>
+          {!isViewingToday && (
+            <button
+              type="button"
+              className="daily-tracker__today-link"
+              onClick={() => setSelectedDateKey(getTodayDateKey())}
+            >
+              Revenir à aujourd’hui
+            </button>
+          )}
         </div>
         <div className="daily-tracker__nums">
-          <span className="daily-tracker__current">{todayTotal}</span>
+          <span className="daily-tracker__current">{dayTotal}</span>
           <span className="daily-tracker__sep">/</span>
           <span className="daily-tracker__goal">{DAILY_CALORIE_GOAL}</span>
           <span className="daily-tracker__unit">kcal</span>
@@ -344,18 +388,18 @@ export default function App() {
         </div>
         {overGoal && (
           <p className="daily-tracker__over">
-            Objectif dépassé de {todayTotal - DAILY_CALORIE_GOAL} kcal
+            Objectif dépassé de {dayTotal - DAILY_CALORIE_GOAL} kcal
           </p>
         )}
-        {!overGoal && todayTotal > 0 && (
+        {!overGoal && dayTotal > 0 && (
           <p className="daily-tracker__remain">
-            Il reste environ {Math.max(0, DAILY_CALORIE_GOAL - todayTotal)}{' '}
+            Il reste environ {Math.max(0, DAILY_CALORIE_GOAL - dayTotal)}{' '}
             kcal
           </p>
         )}
-        {todayTotal > 0 && (
+        {dayTotal > 0 && (
           <ul className="daily-tracker__list">
-            {(journal.days[todayKey] ?? []).map((e) => (
+            {(journal.days[selectedDateKey] ?? []).map((e) => (
               <li key={e.id} className="daily-tracker__item">
                 <span className="daily-tracker__item-label">{e.label}</span>
                 <span className="daily-tracker__item-kcal">{e.calories}</span>

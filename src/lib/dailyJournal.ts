@@ -34,13 +34,35 @@ export function saveJournal(store: JournalStore): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
 }
 
-/** Date locale au format YYYY-MM-DD (fuseau du navigateur). */
-export function getTodayDateKey(): string {
-  const d = new Date()
+/** Formate une date locale en YYYY-MM-DD. */
+function toDateKey(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/** Date locale au format YYYY-MM-DD (fuseau du navigateur). */
+export function getTodayDateKey(): string {
+  return toDateKey(new Date())
+}
+
+/** Interprète une clé YYYY-MM-DD en date locale (midi pour éviter les bugs DST). */
+export function parseDateKey(dateKey: string): Date {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+/** Jour précédent / suivant (fuseau local). */
+export function shiftDateKey(dateKey: string, deltaDays: number): string {
+  const d = parseDateKey(dateKey)
+  d.setDate(d.getDate() + deltaDays)
+  return toDateKey(d)
+}
+
+/** Comparaison de deux clés YYYY-MM-DD (-1, 0, 1). */
+export function compareDateKeys(a: string, b: string): number {
+  return a.localeCompare(b)
 }
 
 export function getDayEntries(
